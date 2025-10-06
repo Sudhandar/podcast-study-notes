@@ -1,4 +1,4 @@
-# Podcast Study Notes Generator
+# Rapid Agent Prototyping using Claude Code
 
 > Rapid agent prototyping using Claude Code. Validate whether your AI agent can generate useful study notes from podcast audio in hours, not weeks—before building any production infrastructure.
 
@@ -42,7 +42,7 @@ podcast-study-notes/
 │   └── test1-short-episode/
 │       └── test-scenario-1.py  # Validation: pass/fail assertions
 │   └── scenario-2/
-│       └── test-scenario-2.py  # Validation: pass/fail assertions
+│       └── test-scenario-2.py  # Your new test case
 
 └── [Generated files - gitignored]
     ├── metadata.json           # Episode info
@@ -147,11 +147,11 @@ chmod +x tools/fetch-podcast tools/download-audio tools/transcribe-audio
 2. Search for the podcast episode that you want to test
 3. Click ... and select the "Use API to fetch JSON" option
 
-![episode-search](iamges/episode-search.png)
+![episode-search](images/episode-search.png)
 
 4. Copy the episode ID
 
-![episode-id](iamges/episode-id.png)
+![episode-id](images/episode-id.png)
 
 5. Add the episode ID to the input file
 
