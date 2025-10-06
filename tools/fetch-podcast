@@ -1,0 +1,195 @@
+#!/bin/bash
+# tools/fetch-podcast
+# Fetches podcast episode metadata and audio URL from Listen Notes API
+# Supports: full URLs, episode IDs, or search terms
+
+if [ -z "$1" ]; then
+    echo "ERROR: Input required"
+    echo ""
+    echo "USAGE: fetch-podcast <input>"
+    echo ""
+    echo "Supported inputs:"
+    echo "  1. Full Listen Notes URL: https://www.listennotes.com/podcasts/.../episode-35dwlJLmyVt/"
+    echo "  2. Episode ID only: 35dwlJLmyVt"
+    echo "  3. Search term: \"Huberman muscle building\" (will return first match)"
+    exit 1
+fi
+
+INPUT=$1
+
+# Get API key from environment
+if [ -z "$LISTENNOTES_API_KEY" ]; then
+    echo "ERROR: LISTENNOTES_API_KEY environment variable not set"
+    echo "NEXT_STEP: Get free API key from https://www.listennotes.com/api/"
+    echo "NEXT_STEP: Export it: export LISTENNOTES_API_KEY='your-key-here'"
+    exit 1
+fi
+
+# Function to extract episode ID from Listen Notes URL
+extract_episode_id() {
+    local url=$1
+    # Pattern: https://www.listennotes.com/podcasts/[name]/[episode-name]-[ID]/
+    # Extract the last part after the last hyphen before the trailing slash
+    echo "$url" | grep -oP '(?<=-)[a-zA-Z0-9_-]+(?=/?)$' | head -1
+}
+
+# Function to fetch episode by ID (CORRECTED)
+fetch_episode_by_id() {
+    local episode_id=$1
+
+    echo "STATUS: FETCHING" >&2
+    echo "INFO: Fetching episode ID: $episode_id" >&2
+    echo "DEBUG: Calling https://listen-api.listennotes.com/api/v2/episodes/$episode_id" >&2
+
+    # CORRECT endpoint: /episodes/{id} (not /podcasts/{id})
+    # Include show_transcript=1 to get transcript data if available
+    local response=$(curl -s -X GET \
+        "https://listen-api.listennotes.com/api/v2/episodes/$episode_id?show_transcript=1" \
+        -H "X-ListenAPI-Key: $LISTENNOTES_API_KEY")
+
+    echo "$response"
+}
+
+# Function to search for episode by title/keywords
+search_episode() {
+    local query=$1
+
+    echo "STATUS: SEARCHING" >&2
+    echo "INFO: Searching for: $query" >&2
+
+    # URL encode the query
+    local encoded_query=$(printf %s "$query" | jq -sRr @uri)
+
+    echo "DEBUG: Calling https://listen-api.listennotes.com/api/v2/search" >&2
+
+    curl -s -X GET \
+        "https://listen-api.listennotes.com/api/v2/search?q=$encoded_query&type=episode&language=English" \
+        -H "X-ListenAPI-Key: $LISTENNOTES_API_KEY"
+}
+
+# Determine input type and fetch accordingly
+if [[ "$INPUT" =~ ^https?:// ]]; then
+    # Input is a URL - extract episode ID
+    EPISODE_ID=$(extract_episode_id "$INPUT")
+    
+    if [ -z "$EPISODE_ID" ]; then
+        echo "ERROR: Could not extract episode ID from URL"
+        echo "URL format should be: https://www.listennotes.com/podcasts/.../episode-XXXXX/"
+        echo "NEXT_STEP: Copy the episode URL from your browser or provide just the episode ID"
+        exit 1
+    fi
+    
+    echo "INFO: Extracted episode ID: $EPISODE_ID from URL"
+    response=$(fetch_episode_by_id "$EPISODE_ID")
+    
+elif [[ "$INPUT" =~ ^[a-zA-Z0-9_-]{8,}$ ]]; then
+    # Input looks like an episode ID (alphanumeric, 8+ chars)
+    EPISODE_ID=$INPUT
+    response=$(fetch_episode_by_id "$EPISODE_ID")
+    
+else
+    # Input is likely a search query
+    search_response=$(search_episode "$INPUT")
+    
+    # Check if search returned results
+    result_count=$(echo "$search_response" | jq -r '.count // 0')
+    
+    if [ "$result_count" -eq 0 ]; then
+        echo "ERROR: No episodes found matching: $INPUT"
+        echo "NEXT_STEP: Try a different search term or provide a Listen Notes URL"
+        exit 1
+    fi
+    
+    # Get the first result
+    EPISODE_ID=$(echo "$search_response" | jq -r '.results[0].id')
+    echo "INFO: Found $result_count results, using first match (ID: $EPISODE_ID)"
+    
+    # Fetch full episode details
+    response=$(fetch_episode_by_id "$EPISODE_ID")
+fi
+
+# Check if response is empty
+if [ -z "$response" ]; then
+    echo "ERROR: Empty response from API"
+    echo "NEXT_STEP: Check your internet connection and API key"
+    exit 1
+fi
+
+# Debug: Show first 200 chars of response if it looks like an error
+if [[ "$response" == *"error"* ]] || [[ "$response" == *"Error"* ]]; then
+    echo "DEBUG: Response preview:"
+    echo "$response" | head -c 200
+    echo "..."
+fi
+
+# Check for API errors
+error=$(echo "$response" | jq -r '.error // empty')
+if [ -n "$error" ]; then
+    echo "ERROR: API returned error: $error"
+    
+    # Check for specific error types
+    if [[ "$error" == *"quota"* ]] || [[ "$error" == *"rate limit"* ]]; then
+        echo "NEXT_STEP: You've exceeded your API quota. Check usage at https://www.listennotes.com/api/usage/"
+    elif [[ "$error" == *"authentication"* ]] || [[ "$error" == *"unauthorized"* ]]; then
+        echo "NEXT_STEP: Verify your API key is correct"
+        echo "NEXT_STEP: Check key at https://www.listennotes.com/api/"
+    elif [[ "$error" == *"not found"* ]]; then
+        echo "NEXT_STEP: Episode ID may be invalid. Try searching instead"
+    else
+        echo "NEXT_STEP: Check API documentation at https://www.listennotes.com/api/docs/"
+    fi
+    exit 1
+fi
+
+# Extract metadata
+audio_url=$(echo "$response" | jq -r '.audio // empty')
+title=$(echo "$response" | jq -r '.title // "Unknown"')
+podcast_name=$(echo "$response" | jq -r '.podcast.title // "Unknown"')
+duration=$(echo "$response" | jq -r '.audio_length_sec // 0')
+description=$(echo "$response" | jq -r '.description // ""' | sed 's/<[^>]*>//g' | head -c 500)  # Strip HTML, truncate
+pub_date=$(echo "$response" | jq -r '.pub_date_ms // 0')
+
+# Check if we got valid audio URL
+if [ -z "$audio_url" ] || [ "$audio_url" = "null" ]; then
+    echo "ERROR: Could not extract audio URL from episode"
+    echo "INFO: Episode may not have publicly available audio"
+    echo "DEBUG: Checking response for audio field..."
+    echo "$response" | jq -r '.audio'
+    echo "NEXT_STEP: Try a different episode or check if the episode requires authentication"
+    exit 1
+fi
+
+# Convert milliseconds to readable date
+if [ "$pub_date" != "0" ]; then
+    # Handle both Linux and macOS date commands
+    readable_date=$(date -d "@$((pub_date / 1000))" +"%Y-%m-%d" 2>/dev/null || date -r "$((pub_date / 1000))" +"%Y-%m-%d" 2>/dev/null || echo "Unknown")
+else
+    readable_date="Unknown"
+fi
+
+# Save metadata as JSON
+cat > metadata.json <<EOF
+{
+  "episode_id": "$EPISODE_ID",
+  "title": "$title",
+  "podcast": "$podcast_name",
+  "duration_sec": $duration,
+  "duration_min": $((duration / 60)),
+  "audio_url": "$audio_url",
+  "pub_date": "$readable_date",
+  "description": "$description"
+}
+EOF
+
+echo ""
+echo "STATUS: SUCCESS"
+echo "OUTPUT_FILE: metadata.json"
+echo "==========================================="
+echo "EPISODE_ID: $EPISODE_ID"
+echo "TITLE: $title"
+echo "PODCAST: $podcast_name"
+echo "DURATION: ${duration}s ($((duration / 60)) minutes)"
+echo "PUB_DATE: $readable_date"
+echo "AUDIO_URL: ${audio_url:0:50}..."
+echo "==========================================="
+echo "NEXT_STEP: Run download-audio \"$audio_url\""

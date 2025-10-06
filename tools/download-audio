@@ -1,0 +1,43 @@
+#!/bin/bash
+# tools/download-audio
+# Downloads podcast audio file from URL
+
+if [ -z "$1" ]; then
+    echo "ERROR: Audio URL required"
+    echo "USAGE: download-audio <audio-url>"
+    exit 1
+fi
+
+AUDIO_URL=$1
+
+echo "STATUS: DOWNLOADING"
+echo "INFO: Fetching audio file (this may take a minute)..."
+
+# Download with progress and follow redirects
+if ! curl -L --progress-bar -o podcast.mp3 "$AUDIO_URL"; then
+    echo "ERROR: Failed to download audio from URL"
+    echo "NEXT_STEP: Verify audio URL is accessible"
+    exit 1
+fi
+
+# Verify file was created and has content
+if [ ! -f podcast.mp3 ]; then
+    echo "ERROR: podcast.mp3 file was not created"
+    exit 1
+fi
+
+file_size_bytes=$(stat -f%z podcast.mp3 2>/dev/null || stat -c%s podcast.mp3)
+if [ "$file_size_bytes" -lt 1000 ]; then
+    echo "ERROR: Downloaded file is too small ($(file_size_bytes) bytes)"
+    echo "NEXT_STEP: Audio URL may be invalid or requires authentication"
+    rm podcast.mp3
+    exit 1
+fi
+
+# Human-readable file size
+file_size=$(du -h podcast.mp3 | cut -f1)
+
+echo "STATUS: SUCCESS"
+echo "OUTPUT_FILE: podcast.mp3"
+echo "FILE_SIZE: $file_size"
+echo "NEXT_STEP: Run transcribe-audio podcast.mp3"

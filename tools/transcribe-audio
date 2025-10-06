@@ -1,0 +1,86 @@
+#!/bin/bash
+# tools/transcribe-audio
+# Transcribes audio file using OpenAI Whisper (local)
+
+if [ -z "$1" ]; then
+    echo "ERROR: Audio file required"
+    echo "USAGE: transcribe-audio <audio-file>"
+    exit 1
+fi
+
+AUDIO_FILE=$1
+
+if [ ! -f "$AUDIO_FILE" ]; then
+    echo "ERROR: Audio file not found: $AUDIO_FILE"
+    echo "NEXT_STEP: Run download-audio first"
+    exit 1
+fi
+
+# Check if whisper is installed
+if ! command -v whisper &> /dev/null; then
+    echo "ERROR: Whisper is not installed"
+    echo "NEXT_STEP: Install with: pip install openai-whisper"
+    exit 1
+fi
+
+echo "STATUS: PROCESSING"
+echo "INFO: Transcribing with Whisper base model..."
+echo "INFO: This may take 2-5 minutes for a 30-60 min podcast"
+
+# Run Whisper using Python to handle SSL certificate issues
+# This approach bypasses SSL verification problems that can occur with the CLI
+export AUDIO_FILE
+python3 << 'PYTHON_SCRIPT'
+import ssl
+import sys
+import os
+
+# Disable SSL verification to avoid certificate errors when downloading models
+ssl._create_default_https_context = ssl._create_unverified_context
+
+import whisper
+
+# Get audio file from environment
+audio_file = os.environ.get('AUDIO_FILE')
+if not audio_file:
+    print("ERROR: AUDIO_FILE not set", file=sys.stderr)
+    sys.exit(1)
+
+# Load model and transcribe
+model = whisper.load_model('base')
+result = model.transcribe(audio_file, language='English', verbose=False)
+
+# Determine output filename
+base_name = os.path.splitext(os.path.basename(audio_file))[0]
+output_file = f"{base_name}.txt"
+
+# Write transcript
+with open(output_file, 'w') as f:
+    f.write(result['text'])
+
+print(f"Transcription written to {output_file}", file=sys.stderr)
+PYTHON_SCRIPT
+
+# Whisper outputs as <filename-without-extension>.txt
+base_name=$(basename "$AUDIO_FILE" .mp3)
+transcript_file="${base_name}.txt"
+
+if [ ! -f "$transcript_file" ]; then
+    echo "ERROR: Transcription failed - no output file generated"
+    echo "NEXT_STEP: Check if Whisper is working: whisper --help"
+    exit 1
+fi
+
+# Rename to standard name for easy reference
+mv "$transcript_file" transcript.txt
+
+# Get word count and size
+word_count=$(wc -w < transcript.txt)
+char_count=$(wc -c < transcript.txt)
+
+echo "STATUS: SUCCESS"
+echo "OUTPUT_FILE: transcript.txt"
+echo "WORD_COUNT: $word_count"
+echo "CHARACTER_COUNT: $char_count"
+echo "METRICS: Transcription complete - ready for note generation"
+echo "NEXT_STEP: Read transcript.txt and metadata.json to generate study-notes.md"

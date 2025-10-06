@@ -205,3 +205,27 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Podcast Study Notes - Generated Files
+# These files are created during the podcast processing workflow
+# and should not be committed to version control
+
+# Output files from tools
+metadata.json
+podcast.mp3
+transcript.txt
+raw-response.json
+
+# Keep study-notes.md as an example (comment out to exclude)
+# study-notes.md
+
+# Audio files
+*.mp3
+*.wav
+*.m4a
+*.ogg
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
