@@ -1,6 +1,6 @@
 # Rapid Agent Prototyping using Claude Code
 
-> Rapid agent prototyping using Claude Code. Validate whether your AI agent can generate useful study notes from podcast audio in hours, not weeks—before building any production infrastructure.
+> Rapid agent prototyping using Claude Code. Validate your agent idea in hours, not weeks
 
 ## Overview
 
